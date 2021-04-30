@@ -13,8 +13,11 @@ the parameter x represents the number of failures before success.
 
 Follow this idea, we can get a maximization of parameter p easily:
 condition 1: p = 1 / E(x)
-condition 2: p = 1 / (1 + E(x))
+condition 2: p = 1 / (1 + E(x)) (I choose this condition since 0 is included in our dataset)
 
+For the latent variables in this question, it will be the same case as the gaussian distribution.
+
+For the 
 
 
 
