@@ -1,0 +1,178 @@
+---
+title: "Untitled"
+author: "Haoran Zhu"
+date: "4/23/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r}
+# load and display data
+data <- read.csv('GoemMixture.csv')
+data <- data
+head(data)
+```
+
+Because there are 0s in the dataset, to prevent $p_k$ exceeding 1, I wrote this EM algorithm slightly different from my exam result.
+
+
+## EM algorithm
+
+### Step 1: Initialize variables 
+
+Choose random values for $c_k^{(0)}$ and $p_k^{(0)}$
+
+
+### Step 2: E-Step
+
+Recompute the assignment weight matrix as 
+
+$$a_{ik}^{(j+1)}:=\frac{c_k^{(j)} f(x_i|p_k^{(j)})}{\sum\limits_{l=1}^K c_l^{(j)} f(x_i|p_k^{(j)})}.$$
+
+
+### Step 3: M-Step
+
+Recompute the proportions $c_k$ and the parameter $p_k$ as
+
+$$c_k^{(j+1)}:=\frac{\sum\limits_{i=1}^n a_{ik}^{(j)}}{n}$$
+
+
+$$p_k^{(j+1)}:=\frac{1}{1+E(x)}=\frac{1}{1 + \frac{\sum\limits_{i=1}^n a_{ik}^{(j+1)} x_i}{\sum\limits_{i=1}^n a_{ik}^{(j+1)}}}$$
+
+### Step 4: Iterate till meet some criteria
+
+The E-Step and M-Step are repeated alternatingly until convergence criterion (e.g. threshold) satisfied.
+
+
+```{r}
+calc.aik <- function(x, ck, pk, K) {
+    result <- matrix(0, nrow = nrow(x), ncol = K)
+    for (i in 1:nrow(x)){
+        result[i,] <- ck * dgeom(x[i,], pk) / sum(ck * dgeom(x[i,], pk))
+    }
+    
+    return(result)
+}
+
+expectation.maximization <- function(x, ck, pk, K, threshold = 1e-10, max_iter = 1000){
+    aik.temp <- matrix(0, nrow = nrow(x), ncol = K)
+    for (i in 1:max_iter) {
+        # E-step
+        aik <- calc.aik(x, ck, pk, K)
+        
+        # M-step
+        # update ck
+        ck <- apply(aik, 2, mean)
+        
+        # update pk
+        for (i in 1:K){
+            Ex <- sum(aik[,i] * x) / sum(aik[,i])
+            pk[i] <-  1 / (1 + Ex)
+        }
+
+        # check if stop
+        if (norm(aik-aik.temp, type='1') < threshold){
+            return(list(ck=ck, pk=pk))
+            break
+        }
+        
+        # reassign aik temp for next comparison
+        aik.temp <- aik
+    }
+    
+    return(list(ck=ck, pk=pk))
+}
+```
+
+
+```{r}
+# calculate clusters after 
+get.cluster <- function(data, em) {
+  aik <- matrix(0, nrow = nrow(data), ncol = K)
+  for (i in 1:nrow(data)){
+      aik[i,] <- em$ck * dgeom(data[i,], em$pk) / sum(em$ck * dgeom(data[i,], em$pk))
+  }
+  
+  cluster <- rep(0, nrow(data))
+  for (i in 1:nrow(data)){
+      cluster[i] <- which(aik[i,] == max(aik[i,]))
+  }
+  return(cluster)
+}
+```
+
+
+```{r}
+set.seed(2)
+K <- 3
+iter <- 20
+ck.collect <- matrix(0, nrow = iter, ncol = K)
+pk.collect <- matrix(0, nrow = iter, ncol = K)
+likelihood.collect <- rep(0, iter)
+
+for (i in 1:iter){
+    print(paste('iteration #', i, sep=''))
+    # get random ck and pk for starting
+    ck.temp <- runif(K, 0, 1)
+    ck.temp <- ck.temp / sum(ck.temp)
+    pk.temp <- runif(K, 0, 1)
+    
+    # calculate the optimization
+    em <- expectation.maximization(data, ck.temp, pk.temp, K)
+    
+    # store ck and pk
+    ck.collect[i,] <- em$ck
+    pk.collect[i,] <- em$pk
+    
+    # calculate cluster
+    cluster <- get.cluster(data, em)
+    
+    # calculate and store likelihood 
+    likelihood <- 0
+    for (j in 1:nrow(data)){
+        log.likelihood <- log(em$ck[1] * em$pk[1] * (1-em$pk[1])^(data[j,]) + 
+                                em$ck[2] * em$pk[2] * (1-em$pk[2])^(data[j,])  + 
+                                em$ck[3] * em$pk[3] * (1-em$pk[3])^(data[j,]) )
+        likelihood <- likelihood + log.likelihood
+    }
+    likelihood.collect[i] <- likelihood
+}
+
+
+
+ck <- unique(ck.collect[which(likelihood.collect == max(likelihood.collect)), ])
+pk <- unique(pk.collect[which(likelihood.collect == max(likelihood.collect)), ])
+ck
+pk
+```
+
+# plots
+
+```{r}
+library(ggplot2)
+ggplot(data) +
+  xlab("X") + ylab("") + ggtitle("plot of x") + 
+  geom_point(mapping = aes(x = X, y = 0))
+```
+
+
+```{r}
+cluster <- get.cluster(data, list(ck=ck, pk=pk))
+ggplot(data) +
+  xlab("X") + ylab("") + ggtitle("cluster of x") + 
+  scale_color_discrete(name = 'cluster', labels = c('cluster1', 'cluster2', 'cluster3')) +
+  geom_point(mapping = aes(x = X, y = 0, col = ifelse(cluster==1, "red", ifelse(cluster==2, 'blue', 'green'))))
+```
+
+Let's do a zoom-in for the left side. (We have to zoom in to see 3 clusters!)
+
+```{r}
+ggplot(data) +
+  xlab("X") + ylab("") + ggtitle("cluster of x") + xlim(0,50) +
+  scale_color_discrete(name = 'cluster', labels = c('cluster1', 'cluster2', 'cluster3')) +
+  geom_point(mapping = aes(x = X, y = 0, col = ifelse(cluster==1, "red", ifelse(cluster==2, 'blue', 'green'))))
+```
